@@ -21,30 +21,19 @@ import (
 )
 
 func main() {
-	name := os.Args[1]
-	user := os.Args[2]
+	username := os.Args[1]
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		panic(err)
 	}
 	keyDer := x509.MarshalPKCS1PrivateKey(key)
-	keyBlock := pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: keyDer,
-	}
-	keyFile, err := os.Create(name + "_key.pem")
-	if err != nil {
-		panic(err)
-	}
-	pem.Encode(keyFile, &keyBlock)
-	keyFile.Close()
-	commonName := user
-	emailAddress := "user@domain.com"
-	org := "My company"
-	orgUnit := "My unit"
-	city := "Seattle"
-	state := "WA"
-	country := "US"
+	commonName := username
+	emailAddress := ""
+	org := ""
+	orgUnit := ""
+	city := ""
+	state := ""
+	country := ""
 	subject := pkix.Name{
 		CommonName:         commonName,
 		Country:            []string{country},
@@ -66,12 +55,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	csrFile, err := os.Create(name + ".csr")
-	if err != nil {
-		panic(err)
-	}
-	pem.Encode(csrFile, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: bytes})
-	csrFile.Close()
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "sjstaging")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	clientset, err := kubernetes.NewForConfig(config)
@@ -80,7 +63,7 @@ func main() {
 	}
 	csr := &certificates.CertificateSigningRequest{
 		ObjectMeta: v1.ObjectMeta{
-			Name: "mycsr4",
+			Name: "mycsr12",
 		},
 		Spec: certificates.CertificateSigningRequestSpec{
 			Groups: []string{
@@ -95,16 +78,16 @@ func main() {
 	}
 	csr.Status.Conditions = append(csr.Status.Conditions, certificates.CertificateSigningRequestCondition{
 		Type:           certificates.CertificateApproved,
-		Reason:         "BLABLABLA",
-		Message:        "This CSR was approved by BLABLABLA",
+		Reason:         "User activation",
+		Message:        "This CSR was approved",
 		LastUpdateTime: v1.Now(),
 	})
-	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().UpdateApproval(context.TODO(), csr, v1.UpdateOptions{})
+	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().UpdateApproval(context.Background(), csr, v1.UpdateOptions{})
 	if err != nil {
 		fmt.Println(err)
-	} else {
-		fmt.Println(string(csr.Status.Certificate))
-		fmt.Println(string(pem.EncodeToMemory(&pem.Block{Type:  "RSA PRIVATE KEY",Bytes: keyDer,})))
 	}
-	clientset.CertificatesV1beta1().CertificateSigningRequests().Delete(context.TODO(),csr.GetName(),v1.DeleteOptions{})
+	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
+	fmt.Println(string(csr.Status.Certificate))
+	fmt.Println(string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDer})))
+	clientset.CertificatesV1beta1().CertificateSigningRequests().Delete(context.TODO(), csr.GetName(), v1.DeleteOptions{})
 }
