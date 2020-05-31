@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
+
+	"github.com/mitchellh/go-homedir"
+	"gopkg.in/yaml.v2"
 
 	certificates "k8s.io/api/certificates/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +22,52 @@ import (
 
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+type Cluster struct {
+	CertificateAuthorityData string `yaml:"certificate-authority-data"`
+	Server                   string `yaml:"server"`
+}
+type Clusters []struct {
+	Cluster Cluster `yaml:"cluster"`
+	Name    string  `yaml:"name"`
+}
+type Context struct {
+	Cluster string `yaml:"cluster"`
+	User    string `yaml:"user"`
+}
+type Contexts struct {
+	Context Context `yaml:"context"`
+	Name    string  `yaml:"name"`
+}
+type Users []struct {
+	User User   `yaml:"user`
+	Name string `yaml:"name"`
+}
+type User struct {
+	ClientCertificateData string `yaml:"client-certificate-data"`
+	ClientKeyData         string `yaml:"client-key-data"`
+}
+type KubeConfig struct {
+	APIVersion     string   `yaml:"apiVersion"`
+	Clusters       Clusters `yaml:"clusters"`
+	Contexts       Contexts `yaml:"contexts"`
+	CurrentContext string   `yaml:"current-context"`
+	Kind           string   `yaml:"kind"`
+	Preferences    struct{} `yaml:"preferences"`
+	Users          Users    `yaml:"users"`
+}
+
+func findKubeConfig() (string, error) {
+	env := os.Getenv("KUBECONFIG")
+	if env != "" {
+		return env, nil
+	}
+	path, err := homedir.Expand("~/.kube/config")
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
 
 func main() {
 	username := os.Args[1]
@@ -56,7 +104,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "disney")
+	kubeconfig, err := findKubeConfig()
+	if err != nil {
+		panic(fmt.Sprintf("An error occured while getting the KubeConfig file: %v", err))
+	}
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -88,12 +139,47 @@ func main() {
 		fmt.Println(err)
 	}
 	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
-	fmt.Printf("Certificate: %v \n\n", base64.StdEncoding.EncodeToString(csr.Status.Certificate))
-	fmt.Printf("Private key: %v \n\n", base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDer})))
 	clientset.CertificatesV1beta1().CertificateSigningRequests().Delete(context.TODO(), csr.GetName(), v1.DeleteOptions{})
 	kubeConfig, err := clientcmd.LoadFromFile(kubeconfig)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("The cluster certificate is %v \n", base64.StdEncoding.EncodeToString([]byte(kubeConfig.Clusters["disney.demo.k8s.local"].CertificateAuthorityData)))
+	kc := &KubeConfig{
+		APIVersion: "v1",
+		Clusters: Clusters{
+			0: {
+				Cluster{
+					base64.StdEncoding.EncodeToString([]byte(kubeConfig.Clusters["disney.demo.k8s.local"].CertificateAuthorityData)),
+					kubeConfig.Clusters["disney.demo.k8s.local"].Server,
+				},
+				"disney.demo.k8s.local",
+			},
+		},
+		Contexts: Contexts{
+			Context{
+				Cluster: "disney.demo.k8s.local",
+				User:    username,
+			},
+			"disney.demo.k8s.local",
+		},
+		CurrentContext: "disney.demo.k8s.local",
+		Kind:           "Config",
+		Users: Users{
+			0: {
+				User{
+					ClientCertificateData: base64.StdEncoding.EncodeToString(csr.Status.Certificate),
+					ClientKeyData:         base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDer})),
+				},
+				username,
+			},
+		},
+	}
+	os.Create(username)
+	file, err := os.OpenFile(username, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	if err != nil {
+		panic(fmt.Sprintf("An error occured while creating the target KubeConfig file: %v", err))
+	}
+	defer file.Close()
+	e := yaml.NewEncoder(file)
+	e.Encode(kc)
 }
