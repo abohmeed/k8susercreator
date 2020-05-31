@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"log"
@@ -55,7 +56,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "sjstaging")
+	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "disney")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -63,7 +64,7 @@ func main() {
 	}
 	csr := &certificates.CertificateSigningRequest{
 		ObjectMeta: v1.ObjectMeta{
-			Name: "mycsr12",
+			Name: "tempscr",
 		},
 		Spec: certificates.CertificateSigningRequestSpec{
 			Groups: []string{
@@ -87,7 +88,12 @@ func main() {
 		fmt.Println(err)
 	}
 	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
-	fmt.Println(string(csr.Status.Certificate))
-	fmt.Println(string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDer})))
+	fmt.Printf("Certificate: %v \n\n", base64.StdEncoding.EncodeToString(csr.Status.Certificate))
+	fmt.Printf("Private key: %v \n\n", base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDer})))
 	clientset.CertificatesV1beta1().CertificateSigningRequests().Delete(context.TODO(), csr.GetName(), v1.DeleteOptions{})
+	kubeConfig, err := clientcmd.LoadFromFile(kubeconfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("The cluster certificate is %v \n", base64.StdEncoding.EncodeToString([]byte(kubeConfig.Clusters["disney.demo.k8s.local"].CertificateAuthorityData)))
 }
