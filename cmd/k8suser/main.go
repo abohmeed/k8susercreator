@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/mitchellh/go-homedir"
@@ -219,7 +220,10 @@ func main() {
 			},
 		},
 	}
-	os.Create(*usernamePtr)
+	dir, err := os.Getwd()
+	check("The following error occured while getting the current working directory %s", err)
+	_, err = os.Create(filepath.Join(dir, *usernamePtr))
+	check("The following error occured while creating the target file %s", err)
 	file, err := os.OpenFile(*usernamePtr, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	check("The following error occured while creating the target Kube Config file", err)
 	defer file.Close()
