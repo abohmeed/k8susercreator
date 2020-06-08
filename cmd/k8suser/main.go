@@ -152,9 +152,7 @@ func main() {
 		SignatureAlgorithm: x509.SHA256WithRSA,
 	}
 	bytes, err := x509.CreateCertificateRequest(rand.Reader, &csrReq, key)
-	if err != nil {
-		panic(err)
-	}
+	check("The following error occured while Creating the CSR", err)
 	kubeconfig, err := findKubeConfig()
 	check("The following error occured while getting the Kube Config file", err)
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
