@@ -9,7 +9,7 @@ The purpose of this tool is to automate the process of generating Certificate Si
 ```
 
 The command-line option can be explained as follows:
-
+`--outdir`: The directory where you want the generated KUBECONFIG to be placed (defaults to the current working diectory)
 `--username`: The name used for authentication (Required)
 
 `--email`: The user's email (Required)

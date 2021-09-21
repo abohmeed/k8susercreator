@@ -91,6 +91,7 @@ func check(msg string, err error) {
 	}
 }
 func main() {
+	outDirPtr := flag.String("outdir", "", "[Optional] The directory to write the generated KUBECONFIG file to")
 	usernamePtr := flag.String("username", "", "[Required] The username")
 	emailPtr := flag.String("email", "", "[Required] The user's email")
 	clusterPtr := flag.String("cluster", "", "[Required] The cluster's name")
@@ -126,6 +127,17 @@ func main() {
 	if *countryPtr != "" && len(*countryPtr) > 2 {
 		log.Fatal("Invalid country. The name must be two letters. Example: US, AU, EG")
 	}
+	if *outDirPtr != "" {
+		dir, err := os.Stat(*outDirPtr)
+		if err != nil {
+			log.Fatalf("failed to open out directory, error: %s\n", err)
+		}
+		if !dir.IsDir() {
+			log.Fatalf("%q is not a directory\n", dir.Name())
+		}
+	} else {
+		*outDirPtr, _ = os.Getwd()
+	}
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	check("The following error occured while creating the RSA key", err)
 	keyDer := x509.MarshalPKCS1PrivateKey(key)
@@ -155,7 +167,7 @@ func main() {
 	check("The following error occured while Creating the CSR", err)
 	kubeconfig, err := findKubeConfig()
 	check("The following error occured while getting the Kube Config file", err)
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	config, _ := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	clientset, err := kubernetes.NewForConfig(config)
 	check("The following error occured while loading the Kube Config file", err)
 	csr := &certificates.CertificateSigningRequest{
@@ -179,7 +191,7 @@ func main() {
 	})
 	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().UpdateApproval(context.Background(), csr, v1.UpdateOptions{})
 	check("The following error occured while approving the Certificate Signing Request", err)
-	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
+	csr, _ = clientset.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
 	clientset.CertificatesV1beta1().CertificateSigningRequests().Delete(context.TODO(), csr.GetName(), v1.DeleteOptions{})
 	kubeConfig, err := clientcmd.LoadFromFile(kubeconfig)
 	check("The following error occured while loading the KubeConfig file", err)
@@ -218,11 +230,12 @@ func main() {
 			},
 		},
 	}
-	dir, err := os.Getwd()
+	// dir, err := os.Getwd()
+	outFile := filepath.Join(*outDirPtr, *usernamePtr)
 	check("The following error occured while getting the current working directory %s", err)
-	_, err = os.Create(filepath.Join(dir, *usernamePtr))
+	_, err = os.Create(outFile)
 	check("The following error occured while creating the target file %s", err)
-	file, err := os.OpenFile(*usernamePtr, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	file, err := os.OpenFile(outFile, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	check("The following error occured while creating the target Kube Config file", err)
 	defer file.Close()
 	e := yaml.NewEncoder(file)
