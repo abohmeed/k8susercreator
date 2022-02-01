@@ -16,12 +16,14 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mitchellh/go-homedir"
 	"gopkg.in/yaml.v2"
 
-	certificates "k8s.io/api/certificates/v1beta1"
+	certificates "k8s.io/api/certificates/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -179,9 +181,15 @@ func main() {
 				"system:authenticated",
 			},
 			Request: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: bytes}),
+			Usages: []certificates.KeyUsage{
+				certificates.UsageKeyEncipherment,
+				certificates.UsageDigitalSignature,
+				certificates.UsageClientAuth,
+			},
+			SignerName: "kubernetes.io/kube-apiserver-client",
 		},
 	}
-	_, err = clientset.CertificatesV1beta1().CertificateSigningRequests().Create(context.TODO(), csr, v1.CreateOptions{})
+	_, err = clientset.CertificatesV1().CertificateSigningRequests().Create(context.TODO(), csr, v1.CreateOptions{})
 	check("The following error occured while sending the Certificate Signing Request", err)
 	csr.Status.Conditions = append(csr.Status.Conditions, certificates.CertificateSigningRequestCondition{
 		Type:           certificates.CertificateApproved,
@@ -189,15 +197,28 @@ func main() {
 		Message:        "This CSR was approved",
 		LastUpdateTime: v1.Now(),
 	})
-	csr, err = clientset.CertificatesV1beta1().CertificateSigningRequests().UpdateApproval(context.Background(), csr, v1.UpdateOptions{})
-	check("The following error occured while approving the Certificate Signing Request", err)
-	csr, _ = clientset.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
-	clientset.CertificatesV1beta1().CertificateSigningRequests().Delete(context.TODO(), csr.GetName(), v1.DeleteOptions{})
+
+	csr, err = clientset.CertificatesV1().CertificateSigningRequests().Get(context.Background(), "tempcsr", v1.GetOptions{})
+	check("The following error occured while getting the Certificate Signing Request", err)
+	if len(csr.Status.Conditions) == 0 {
+		csr.Status.Conditions = append(csr.Status.Conditions, certificates.CertificateSigningRequestCondition{
+			Type: certificates.CertificateApproved,
+			Status: corev1.ConditionTrue,
+		})
+		csr, err = clientset.CertificatesV1().CertificateSigningRequests().UpdateApproval(context.Background(), "tempcsr", csr, v1.UpdateOptions{})
+		check("The following error occured while approving the Certificate Signing Request", err)
+	}
+	csr, _ = clientset.CertificatesV1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
+	clientset.CertificatesV1().CertificateSigningRequests().Delete(context.TODO(), csr.GetName(), v1.DeleteOptions{})
 	kubeConfig, err := clientcmd.LoadFromFile(kubeconfig)
 	check("The following error occured while loading the KubeConfig file", err)
 	if _, v := kubeConfig.Clusters[*clusterPtr]; !v {
 		log.Fatal(fmt.Sprintf("Cluster \"%s\" was not found in the current Kube Config file", *clusterPtr))
 	}
+	for len(csr.Status.Certificate) == 0 {
+		csr, _ = clientset.CertificatesV1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
+		time.Sleep(2 * time.Second)
+        }
 	kc := &KubeConfig{
 		APIVersion: "v1",
 		Clusters: Clusters{
@@ -231,7 +252,7 @@ func main() {
 		},
 	}
 	// dir, err := os.Getwd()
-	outFile := filepath.Join(*outDirPtr, *usernamePtr)
+	outFile := filepath.Join(*outDirPtr, strings.Replace(*usernamePtr, ":","_", -1))
 	check("The following error occured while getting the current working directory %s", err)
 	_, err = os.Create(outFile)
 	check("The following error occured while creating the target file %s", err)
