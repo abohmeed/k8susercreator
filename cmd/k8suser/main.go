@@ -16,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mitchellh/go-homedir"
 	"gopkg.in/yaml.v2"
@@ -214,6 +215,10 @@ func main() {
 	if _, v := kubeConfig.Clusters[*clusterPtr]; !v {
 		log.Fatal(fmt.Sprintf("Cluster \"%s\" was not found in the current Kube Config file", *clusterPtr))
 	}
+	for len(csr.Status.Certificate) == 0 {
+		csr, _ = clientset.CertificatesV1().CertificateSigningRequests().Get(context.TODO(), csr.GetName(), v1.GetOptions{})
+		time.Sleep(2 * time.Second)
+        }
 	kc := &KubeConfig{
 		APIVersion: "v1",
 		Clusters: Clusters{
